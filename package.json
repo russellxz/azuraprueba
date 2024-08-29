@@ -1,0 +1,17 @@
+{
+  "name": "azura2.0",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node index"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "@hapi/boom": "^10.0.1",
+    "@whiskeysockets/baileys": "^6.7.7"
+  }
+}
