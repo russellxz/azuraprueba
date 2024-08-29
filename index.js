@@ -1,31 +1,62 @@
-import makeWASocket, { DisconnectReason } from '@whiskeysockets/baileys';
-import { Boom } from '@hapi/boom';
+(async () => {
+    const { 
+        default: makeWASocket, 
+        Browsers, 
+        makeInMemoryStore, 
+        useMultiFileAuthState, 
+        fetchLatestBaileysVersion, 
+        proto 
+    } = require("@whiskeysockets/baileys");
+    const { state, saveCreds } = await useMultiFileAuthState('./sessions');
+    const pino = require('pino');
+    const NodeCache = require('node-cache');
+    const chalk = require('chalk');
+    const readline = require("readline");
 
-async function connectToWhatsApp () {
-    const sock = makeWASocket({
-        printQRInTerminal: true
-    });
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    const question = (text) => new Promise((resolve) => rl.question(text, resolve));
 
-    sock.ev.on('connection.update', (update) => {
-        const { connection, lastDisconnect } = update;
-        if(connection === 'close') {
-            const shouldReconnect = (lastDisconnect.error instanceof Boom) && lastDisconnect.error.output.statusCode !== DisconnectReason.loggedOut;
-            console.log('connection closed due to ', lastDisconnect.error, ', reconnecting ', shouldReconnect);
-            if(shouldReconnect) {
-                connectToWhatsApp();
-            }
-        } else if(connection === 'open') {
-            console.log('opened connection');
+    const { version } = await fetchLatestBaileysVersion();
+    const msgRetryCounterCache = new NodeCache();
+
+    const methodCodeQR = process.argv.includes("qr");
+    const methodCode = process.argv.includes("code");
+    const useMobile = process.argv.includes("--mobile");
+
+    let opcion = methodCodeQR ? '1' : (methodCode ? '2' : null);
+
+    if (!opcion) {
+        opcion = await question(`Selecciona una opción para conectar:\n1. Código QR\n2. Código de 8 dígitos\n`);
+        if (!/^[1-2]$/.test(opcion)) {
+            console.log(chalk.bold.red("Opción inválida. Selecciona 1 o 2."));
+            process.exit(1);
         }
-    });
+    }
 
-    sock.ev.on('messages.upsert', async m => {
-        console.log(JSON.stringify(m, undefined, 2));
+    const socketSettings = {
+        logger: pino({ level: 'silent' }),
+        printQRInTerminal: opcion === '1',
+        auth: { creds: state.creds, keys: state.keys },
+        mobile: useMobile,
+        browser: Browsers.ubuntu("Chrome"),
+        version,
+        msgRetryCounterCache,
+        getMessage: async (key) => {
+            const msg = await store.loadMessage(key.remoteJid, key.id);
+            return msg || proto.Message.fromObject({});
+        },
+    };
 
-        console.log('replying to', m.messages[0].key.remoteJid);
-        await sock.sendMessage(m.messages[0].key.remoteJid!, { text: 'Hello there!' });
-    });
-}
+    const sock = makeWASocket(socketSettings);
 
-// Iniciar la conexión
-connectToWhatsApp();
+    sock.ev.on('creds.update', saveCreds);
+
+    if (opcion === '2' && !sock.authState.creds.registered) {
+        let phoneNumber = await question(chalk.green("Ingresa el número de teléfono: "));
+        phoneNumber = phoneNumber.replace(/[^0-9]/g, '');
+        const codeBot = await sock.requestPairingCode(phoneNumber);
+        console.log(chalk.bold.white(`Código de vinculación: ${codeBot}`));
+    }
+
+    rl.close();
+})();
