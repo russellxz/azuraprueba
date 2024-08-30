@@ -22,7 +22,7 @@ const {
 } = require('./comandos');
 
 const config = require('./config.json');
-const pairingCode = !!config.pairing.number;
+const pairingCode = !!config.pairing.number || process.argv.includes("--pairing-code");
 const useMobile = process.argv.includes("--mobile");
 
 async function startBot() {
