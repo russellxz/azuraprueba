@@ -4,6 +4,7 @@ const {
     useMultiFileAuthState, 
     fetchLatestBaileysVersion, 
     proto, 
+    PHONENUMBER_MCC,
     DisconnectReason 
 } = require("@whiskeysockets/baileys");
 const pino = require('pino');
