@@ -18,7 +18,7 @@ const {
     abrirGrupoCommand, 
     guardarMediaCommand, 
     enviarMediaCommand,
-    loadMediaDatabase // Asegúrate de importar esta función
+    loadMediaDatabase
 } = require('./comandos');
 
 async function startBot() {
@@ -44,7 +44,7 @@ async function startBot() {
     }
 
     const socketSettings = {
-        logger: pino({ level: 'debug' }),
+        logger: pino({ level: 'fatal' }),
         printQRInTerminal: opcion === '1',
         auth: state,
         mobile: useMobile,
