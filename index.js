@@ -21,6 +21,9 @@ const {
     loadMediaDatabase
 } = require('./comandos');
 
+const config = require('./config.json');
+const pairingCode = !!config.pairing.number;
+
 async function startBot() {
     const { state, saveCreds } = await useMultiFileAuthState('./sessions');
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
@@ -29,31 +32,32 @@ async function startBot() {
     const { version } = await fetchLatestBaileysVersion();
     const msgRetryCounterCache = new NodeCache();
 
-    const methodCodeQR = process.argv.includes("qr");
-    const methodCode = process.argv.includes("code");
-    const useMobile = process.argv.includes("--mobile");
-    let opcion = methodCodeQR ? '1' : (methodCode ? '2' : null);
-    
-    const sock = makeWASocket({
-        logger: pino({ level: "fatal" }).child({ level: "fatal" }),
-        printQRInTerminal: opcion === '1',
-        auth: state,
-        mobile: useMobile,
-        browser: Browsers.ubuntu("Chrome"),
-        version,
-        markOnlineOnConnect: true,
-        msgRetryCounterCache,
+    global.sock = makeWASocket({
+      ...(config["pairing"].state
+         ? {
+            logger: pino({ level: "fatal" }).child({ level: "fatal" }),
+            printQRInTerminal: !pairingCode,
+            mobile: '--mobile',
+            auth: state,
+            browser: Browsers.ubuntu("Chrome"),
+            version: Version,
+            markOnlineOnConnect: true,
+            generateHighQualityLinkPreview: true,
+            msgRetryCounterCache,
+            defaultQueryTimeoutMs: undefined
+         } : {
+            logger: pino({ level: 'silent' }),
+            printQRInTerminal: true,
+            markOnlineOnConnect: true,
+            defaultQueryTimeoutMs: undefined,
+            msgRetryCounterMap,
+            browser: Browsers.ubuntu("Chrome"),
+            auth: state,
+            version: Version
+         }),
     });
 
     sock.ev.on('creds.update', saveCreds);
-
-    if (!opcion) {
-        opcion = await question(`Selecciona una opción para conectar:\n1. Código QR\n2. Código de 8 dígitos\n`);
-        if (!/^[1-2]$/.test(opcion)) {
-            console.log(chalk.bold.red("Opción inválida. Selecciona 1 o 2."));
-            process.exit(1);
-        }
-    }
     
     sock.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect } = update;
@@ -61,7 +65,7 @@ async function startBot() {
             const shouldReconnect = lastDisconnect.error?.output?.statusCode !== DisconnectReason.loggedOut;
             console.log('Conexión cerrada', lastDisconnect.error);
             if (shouldReconnect) {
-                startBot(); // Reintentar la conexión
+                startBot();
             }
         } else if (connection === 'open') {
             console.log('Conectado exitosamente');
