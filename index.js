@@ -58,6 +58,23 @@ async function startBot() {
     });
 
     sock.ev.on('creds.update', saveCreds);
+
+    if (config["pairing"].state && pairingCode && !sock.authState.creds.registered) {
+        if (useMobile) throw new Error('No se puede usar el código de emparejamiento con la API móvil.');
+        let phoneNumber;
+        if (!!sock.pairing.number) {
+           phoneNumber = config.pairing.number.toString();
+           if (!Object.keys(PHONENUMBER_MCC).some(v => phoneNumber.startsWith(v))) {
+              console.log(chalk.bgBlack(chalk.redBright("Ingrese un número válido en el archivo 'config.json' en la sección: [pairing > number], para vincular su cuenta usando un código de emparejamiento. Ejemplo: 5076xxxxxxx.")));
+              process.exit(0);
+           }
+        }
+        setTimeout(async () => {
+           let code = await sock.requestPairingCode(config.pairing.number);
+           code = code?.match(/.{1,4}/g)?.join("-") || code;
+           console.log(chalk.black(chalk.bgGreen(`Tu código de emparejamiento : `)), chalk.black(chalk.white(code)));
+        }, 3000);
+    }
     
     sock.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect } = update;
@@ -109,16 +126,7 @@ async function startBot() {
         if (text && text.toLowerCase() === 'abrir grupo') {
             await abrirGrupoCommand(sock, message);  // Llama al comando para abrir el grupo
         }
-    });
-
-    if (opcion === '2' && !sock.authState.creds.registered) {
-        let phoneNumber = await question(chalk.green("Ingresa el número de teléfono: "));
-        phoneNumber = phoneNumber.replace(/[^0-9]/g, '');
-        const codeBot = await sock.requestPairingCode(phoneNumber);
-        console.log(chalk.bold.white(`Código de vinculación: ${codeBot}`));
-    }
-
-    rl.close();
+    })
 }
 
 // Iniciar el bot
