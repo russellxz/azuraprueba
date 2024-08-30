@@ -32,7 +32,8 @@ async function startBot() {
     const methodCodeQR = process.argv.includes("qr");
     const methodCode = process.argv.includes("code");
     const useMobile = process.argv.includes("--mobile");
-
+    let opcion = methodCodeQR ? '1' : (methodCode ? '2' : null);
+    
     const sock = makeWASocket({
         logger: pino({ level: "fatal" }).child({ level: "fatal" }),
         printQRInTerminal: opcion === '1',
@@ -45,8 +46,6 @@ async function startBot() {
     });
 
     sock.ev.on('creds.update', saveCreds);
-
-    let opcion = methodCodeQR ? '1' : (methodCode ? '2' : null);
 
     if (!opcion) {
         opcion = await question(`Selecciona una opción para conectar:\n1. Código QR\n2. Código de 8 dígitos\n`);
