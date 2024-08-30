@@ -40,7 +40,7 @@ async function startBot() {
             mobile: '--mobile',
             auth: state,
             browser: Browsers.ubuntu("Chrome"),
-            version: Version,
+            version: version,
             markOnlineOnConnect: true,
             generateHighQualityLinkPreview: true,
             msgRetryCounterCache,
@@ -53,7 +53,7 @@ async function startBot() {
             msgRetryCounterMap,
             browser: Browsers.ubuntu("Chrome"),
             auth: state,
-            version: Version
+            version: version
          }),
     });
 
