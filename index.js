@@ -23,6 +23,7 @@ const {
 
 const config = require('./config.json');
 const pairingCode = !!config.pairing.number;
+const useMobile = process.argv.includes("--mobile");
 
 async function startBot() {
     const { state, saveCreds } = await useMultiFileAuthState('./sessions');
@@ -37,7 +38,7 @@ async function startBot() {
          ? {
             logger: pino({ level: "fatal" }).child({ level: "fatal" }),
             printQRInTerminal: !pairingCode,
-            mobile: '--mobile',
+            mobile: useMobile,
             auth: state,
             browser: Browsers.ubuntu("Chrome"),
             version: version,
