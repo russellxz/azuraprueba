@@ -5,7 +5,8 @@ const {
     fetchLatestBaileysVersion, 
     proto, 
     PHONENUMBER_MCC,
-    DisconnectReason 
+    DisconnectReason,
+    msgRetryCounterMap
 } = require("@whiskeysockets/baileys");
 const pino = require('pino');
 const NodeCache = require('node-cache');
