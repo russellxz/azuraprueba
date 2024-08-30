@@ -33,6 +33,19 @@ async function startBot() {
     const methodCode = process.argv.includes("code");
     const useMobile = process.argv.includes("--mobile");
 
+    const sock = makeWASocket({
+        logger: pino({ level: "fatal" }).child({ level: "fatal" }),
+        printQRInTerminal: opcion === '1',
+        auth: state,
+        mobile: useMobile,
+        browser: Browsers.ubuntu("Chrome"),
+        version,
+        markOnlineOnConnect: true,
+        msgRetryCounterCache,
+    });
+
+    sock.ev.on('creds.update', saveCreds);
+
     let opcion = methodCodeQR ? '1' : (methodCode ? '2' : null);
 
     if (!opcion) {
@@ -42,21 +55,7 @@ async function startBot() {
             process.exit(1);
         }
     }
-
-    const socketSettings = {
-        logger: pino({ level: 'fatal' }),
-        printQRInTerminal: opcion === '1',
-        auth: state,
-        mobile: useMobile,
-        browser: Browsers.ubuntu("Chrome"),
-        version,
-        msgRetryCounterCache,
-    };
-
-    const sock = makeWASocket(socketSettings);
-
-    sock.ev.on('creds.update', saveCreds);
-
+    
     sock.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect } = update;
         if (connection === 'close') {
