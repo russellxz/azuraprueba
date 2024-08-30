@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const { tmpdir } = require('os');
 
+
 // Función para crear stickers
 async function stickerCommand(sock, message) {
     try {
@@ -108,6 +109,26 @@ function saveMediaDatabase(data) {
     fs.writeFileSync(mediaDatabasePath, JSON.stringify(data, null, 2));
 }
 
+// Función para convertir notas de voz a MP3
+function convertirAudioMP3(buffer, outputPath) {
+    return new Promise((resolve, reject) => {
+        const inputPath = path.join(tmpdir(), `temp.ogg`);
+        fs.writeFileSync(inputPath, buffer);
+
+        ffmpeg(inputPath)
+            .toFormat('mp3')
+            .on('end', () => {
+                fs.unlinkSync(inputPath); // Elimina el archivo temporal
+                resolve(outputPath);
+            })
+            .on('error', (err) => {
+                fs.unlinkSync(inputPath); // Elimina el archivo temporal
+                reject(err);
+            })
+            .save(outputPath);
+    });
+}
+
 // Comando para guardar multimedia
 async function guardarMediaCommand(sock, message, keyword) {
     try {
@@ -120,9 +141,15 @@ async function guardarMediaCommand(sock, message, keyword) {
                 buffer = Buffer.concat([buffer, chunk]);
             }
 
-            const fileExtension = mediaType.includes('image') ? 'jpg' : mediaType.includes('video') ? 'mp4' : mediaType.includes('audio') ? 'mp4' : 'webp';
-            const filePath = path.join(tmpdir(), `${keyword}.${fileExtension}`);
-            fs.writeFileSync(filePath, buffer);
+            let filePath;
+            if (mediaType.includes('audio')) {
+                filePath = path.join(tmpdir(), `${keyword}.mp3`);
+                await convertirAudioMP3(buffer, filePath); // Convertir a MP3
+            } else {
+                const fileExtension = mediaType.includes('image') ? 'jpg' : mediaType.includes('video') ? 'mp4' : 'webp';
+                filePath = path.join(tmpdir(), `${keyword}.${fileExtension}`);
+                fs.writeFileSync(filePath, buffer);
+            }
 
             const mediaDatabase = loadMediaDatabase();
             mediaDatabase[keyword] = filePath;
@@ -158,7 +185,7 @@ async function enviarMediaCommand(sock, message) {
                 messageOptions.sticker = buffer;
             } else if (fileExtension === 'mp3') {
                 messageOptions.audio = buffer;
-                messageOptions.mimetype = 'audio/mp4';
+                messageOptions.mimetype = 'audio/mp3';
             }
 
             await sock.sendMessage(message.key.remoteJid, messageOptions);
@@ -171,12 +198,33 @@ async function enviarMediaCommand(sock, message) {
     }
 }
 
+// Comando para eliminar multimedia guardado
+async function eliminarMediaCommand(sock, message, keyword) {
+    try {
+        const mediaDatabase = loadMediaDatabase();
+
+        if (mediaDatabase[keyword]) {
+            fs.unlinkSync(mediaDatabase[keyword]); // Elimina el archivo guardado
+            delete mediaDatabase[keyword]; // Elimina la entrada de la base de datos
+            saveMediaDatabase(mediaDatabase);
+            await sock.sendMessage(message.key.remoteJid, { text: `¡Multimedia asociado con la palabra clave "${keyword}" ha sido eliminado!` });
+        } else {
+            await sock.sendMessage(message.key.remoteJid, { text: 'No se encontró ningún multimedia guardado con esa palabra clave.' });
+        }
+    } catch (error) {
+        console.error('Error eliminando multimedia:', error);
+        await sock.sendMessage(message.key.remoteJid, { text: 'Hubo un error al eliminar el multimedia.' });
+    }
+}
+
+
 module.exports = {
     stickerCommand,
     cerrarGrupoCommand,
     abrirGrupoCommand,
     guardarMediaCommand,
     enviarMediaCommand,
+    eliminarMediaCommand, // Asegúrate de exportar este comando
     loadMediaDatabase,
     saveMediaDatabase
 };
