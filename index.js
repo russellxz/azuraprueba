@@ -1,18 +1,28 @@
-(async () => {
-    const { 
-        default: makeWASocket, 
-        Browsers, 
-        makeInMemoryStore, 
-        useMultiFileAuthState, 
-        fetchLatestBaileysVersion, 
-        proto 
-    } = require("@whiskeysockets/baileys");
-    const { state, saveCreds } = await useMultiFileAuthState('./sessions');
-    const pino = require('pino');
-    const NodeCache = require('node-cache');
-    const chalk = require('chalk');
-    const readline = require("readline");
+const { 
+    default: makeWASocket, 
+    Browsers, 
+    useMultiFileAuthState, 
+    fetchLatestBaileysVersion, 
+    proto, 
+    DisconnectReason 
+} = require("@whiskeysockets/baileys");
+const pino = require('pino');
+const NodeCache = require('node-cache');
+const chalk = require('chalk');
+const readline = require("readline");
+const fs = require('fs');
+const path = require('path');
+const { 
+    stickerCommand, 
+    cerrarGrupoCommand, 
+    abrirGrupoCommand, 
+    guardarMediaCommand, 
+    enviarMediaCommand,
+    loadMediaDatabase // Asegúrate de importar esta función
+} = require('./comandos');
 
+async function startBot() {
+    const { state, saveCreds } = await useMultiFileAuthState('./sessions');
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
     const question = (text) => new Promise((resolve) => rl.question(text, resolve));
 
@@ -34,22 +44,70 @@
     }
 
     const socketSettings = {
-        logger: pino({ level: 'silent' }),
+        logger: pino({ level: 'debug' }),
         printQRInTerminal: opcion === '1',
-        auth: { creds: state.creds, keys: state.keys },
+        auth: state,
         mobile: useMobile,
         browser: Browsers.ubuntu("Chrome"),
         version,
         msgRetryCounterCache,
-        getMessage: async (key) => {
-            const msg = await store.loadMessage(key.remoteJid, key.id);
-            return msg || proto.Message.fromObject({});
-        },
     };
 
     const sock = makeWASocket(socketSettings);
 
     sock.ev.on('creds.update', saveCreds);
+
+    sock.ev.on('connection.update', (update) => {
+        const { connection, lastDisconnect } = update;
+        if (connection === 'close') {
+            const shouldReconnect = lastDisconnect.error?.output?.statusCode !== DisconnectReason.loggedOut;
+            console.log('Conexión cerrada', lastDisconnect.error);
+            if (shouldReconnect) {
+                startBot(); // Reintentar la conexión
+            }
+        } else if (connection === 'open') {
+            console.log('Conectado exitosamente');
+        }
+    });
+
+    // Escucha los mensajes y aplica los comandos
+    sock.ev.on('messages.upsert', async (m) => {
+        const message = m.messages[0];
+        if (!message.message || message.key.fromMe) return;
+
+        const text = message.message.conversation || message.message.extendedTextMessage?.text;
+
+        // Priorizar la creación de stickers
+        if (text && text.toLowerCase() === '.s') {
+            await stickerCommand(sock, message);  // Llama al comando de creación de sticker
+            return;  // Salir para evitar que otros comandos intenten procesar el mismo mensaje
+        }
+
+        // Comando para guardar multimedia
+        if (text && text.toLowerCase().startsWith('guar ')) {
+            const keyword = text.split(' ')[1];
+            if (keyword) {
+                await guardarMediaCommand(sock, message, keyword);  // Guarda el multimedia con la palabra clave
+            } else {
+                await sock.sendMessage(message.key.remoteJid, { text: 'Por favor, proporciona una palabra clave después de "guar".' });
+            }
+            return;  // Salir para evitar conflictos con el envío de multimedia
+        }
+
+        // Comando para enviar multimedia basado en una palabra clave
+        if (text && loadMediaDatabase()[text]) {
+            await enviarMediaCommand(sock, message);  // Envía el multimedia basado en la palabra clave
+        }
+
+        // Comandos de abrir y cerrar grupos
+        if (text && text.toLowerCase() === 'cerrar grupo') {
+            await cerrarGrupoCommand(sock, message);  // Llama al comando para cerrar el grupo
+        }
+
+        if (text && text.toLowerCase() === 'abrir grupo') {
+            await abrirGrupoCommand(sock, message);  // Llama al comando para abrir el grupo
+        }
+    });
 
     if (opcion === '2' && !sock.authState.creds.registered) {
         let phoneNumber = await question(chalk.green("Ingresa el número de teléfono: "));
@@ -59,4 +117,7 @@
     }
 
     rl.close();
-})();
+}
+
+// Iniciar el bot
+startBot();
