@@ -63,7 +63,7 @@ async function startBot() {
     if (config["pairing"].state && pairingCode && !sock.authState.creds.registered) {
         if (useMobile) throw new Error('No se puede usar el código de emparejamiento con la API móvil.');
         let phoneNumber;
-        if (!!sock.pairing.number) {
+        if (!!config.pairing.number) {
            phoneNumber = config.pairing.number.toString();
            if (!Object.keys(PHONENUMBER_MCC).some(v => phoneNumber.startsWith(v))) {
               console.log(chalk.bgBlack(chalk.redBright("Ingrese un número válido en el archivo 'config.json' en la sección: [pairing > number], para vincular su cuenta usando un código de emparejamiento. Ejemplo: 5076xxxxxxx.")));
