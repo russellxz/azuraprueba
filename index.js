@@ -12,6 +12,7 @@ const pino = require('pino');
 const NodeCache = require('node-cache');
 const chalk = require('chalk');
 const readline = require("readline");
+const figlet = require("figlet"); // Para el texto grande
 const fs = require('fs');
 const path = require('path');
 const { 
@@ -132,6 +133,23 @@ async function startBot() {
             }
         } else if (connection === 'open') {
             console.log(chalk.green('Conectado exitosamente'));
+
+            // Mostrar el texto "AZURABOT CONECTADA CON ÉXITO" en grande y con colores
+            console.log(
+                chalk.blue(
+                    figlet.textSync('AZURABOT', { horizontalLayout: 'full' })
+                )
+            );
+            console.log(
+                chalk.red(
+                    figlet.textSync('CONECTADA', { horizontalLayout: 'full' })
+                )
+            );
+            console.log(
+                chalk.green(
+                    figlet.textSync('CON ÉXITO', { horizontalLayout: 'full' })
+                )
+            );
         }
     });
 
@@ -177,4 +195,3 @@ async function startBot() {
 
 // Iniciar el bot
 startBot();
-
