@@ -24,23 +24,92 @@ const {
 } = require('./comandos');
 
 const config = require('./config.json');
-const pairingCode = !!config.pairing.number || process.argv.includes("--pairing-code");
+const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+const question = (text) => new Promise((resolve) => rl.question(text, resolve));
+
 const useMobile = process.argv.includes("--mobile");
 
 async function startBot() {
     const { state, saveCreds } = await useMultiFileAuthState('./sessions');
-    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-    const question = (text) => new Promise((resolve) => rl.question(text, resolve));
-
     const { version } = await fetchLatestBaileysVersion();
     const msgRetryCounterCache = new NodeCache();
 
-    global.sock = makeWASocket({
-      ...(config["pairing"].state
-         ? {
+    let opcion;
+
+    if (!fs.existsSync(`./sessions/creds.json`)) {
+        let lineM = '┅┅┅┅┅┅┅┅┅┅┅┅┅┅┅┅┅┅┅┅';
+        opcion = await question(`┏${lineM}  
+┋ ${chalk.blueBright('┏┅┅┅┅┅┅┅┅┅┅┅┅┅┅┅')}
+┋ ${chalk.blueBright('┋')} ${chalk.blue.bgBlue.bold.cyan('MÉTODO DE VINCULACIÓN')}
+┋ ${chalk.blueBright('┗┅┅┅┅┅┅┅┅┅┅┅┅┅┅┅')}   
+┋ ${chalk.blueBright('┏┅┅┅┅┅┅┅┅┅┅┅┅┅┅┅')}     
+┋ ${chalk.blueBright('┋')} ${chalk.green.bgMagenta.bold.yellow('¿CÓMO DESEA CONECTARSE?')}
+┋ ${chalk.blueBright('┋')} ${chalk.bold.redBright('⇢  Opción 1:')} ${chalk.greenBright('Código QR.')}
+┋ ${chalk.blueBright('┋')} ${chalk.bold.redBright('⇢  Opción 2:')} ${chalk.greenBright('Código de 8 dígitos.')}
+┋ ${chalk.blueBright('┗┅┅┅┅┅┅┅┅┅┅┅┅┅┅┅')}
+┋ ${chalk.blueBright('┏┅┅┅┅┅┅┅┅┅┅┅┅┅┅┅')}     
+┋ ${chalk.blueBright('┋')} ${chalk.italic.magenta('Escriba sólo el número de')}
+┋ ${chalk.blueBright('┋')} ${chalk.italic.magenta('la opción para conectarse.')}
+┋ ${chalk.blueBright('┗┅┅┅┅┅┅┅┅┅┅┅┅┅┅┅')}
+┗${lineM}\n${chalk.bold.magentaBright('---> ')}`);
+        if (opcion === '2') {
+            let phoneNumber = await question(`${chalk.bold.magentaBright('Por favor, ingrese su número de teléfono (con el código de país): ')}`);
+            phoneNumber = phoneNumber.trim();
+
+            if (!/^\d+$/.test(phoneNumber)) {
+                console.log(chalk.bgBlack(chalk.redBright("Número de teléfono no válido. Asegúrese de ingresar solo números.")));
+                process.exit(0);
+            }
+
+            if (!Object.keys(PHONENUMBER_MCC).some(v => phoneNumber.startsWith(v))) {
+                console.log(chalk.bgBlack(chalk.redBright("Ingrese un número válido con el código de país. Ejemplo: 5076xxxxxxx.")));
+                process.exit(0);
+            }
+
+            config.pairing.number = phoneNumber;
+            fs.writeFileSync('./config.json', JSON.stringify(config, null, 2));
+
+            global.sock = makeWASocket({
+                logger: pino({ level: "fatal" }).child({ level: "fatal" }),
+                auth: state,
+                browser: Browsers.ubuntu("Chrome"),
+                version: version,
+                markOnlineOnConnect: true,
+                generateHighQualityLinkPreview: true,
+                msgRetryCounterCache,
+                defaultQueryTimeoutMs: undefined
+            });
+
+            sock.ev.on('creds.update', saveCreds);
+
+            setTimeout(async () => {
+                let code = await sock.requestPairingCode(phoneNumber);
+                code = code?.match(/.{1,4}/g)?.join("-") || code;
+                console.log(chalk.black(chalk.bgGreen(`Tu código de emparejamiento : `)), chalk.black(chalk.white(code)));
+            }, 3000);
+
+        } else if (opcion === '1') {
+            global.sock = makeWASocket({
+                logger: pino({ level: "fatal" }).child({ level: "fatal" }),
+                printQRInTerminal: true,
+                auth: state,
+                browser: Browsers.ubuntu("Chrome"),
+                version: version,
+                markOnlineOnConnect: true,
+                generateHighQualityLinkPreview: true,
+                msgRetryCounterCache,
+                defaultQueryTimeoutMs: undefined
+            });
+
+            sock.ev.on('creds.update', saveCreds);
+        } else {
+            console.log(chalk.bold.redBright(`Opción no válida. Debe ingresar '1' o '2'.`));
+            process.exit(0);
+        }
+    } else {
+        global.sock = makeWASocket({
             logger: pino({ level: "fatal" }).child({ level: "fatal" }),
-            printQRInTerminal: !pairingCode,
-            mobile: useMobile,
+            printQRInTerminal: true,
             auth: state,
             browser: Browsers.ubuntu("Chrome"),
             version: version,
@@ -48,37 +117,11 @@ async function startBot() {
             generateHighQualityLinkPreview: true,
             msgRetryCounterCache,
             defaultQueryTimeoutMs: undefined
-         } : {
-            logger: pino({ level: 'silent' }),
-            printQRInTerminal: true,
-            markOnlineOnConnect: true,
-            defaultQueryTimeoutMs: undefined,
-            msgRetryCounterMap,
-            browser: Browsers.ubuntu("Chrome"),
-            auth: state,
-            version: version
-         }),
-    });
+        });
 
-    sock.ev.on('creds.update', saveCreds);
-
-    if (config["pairing"].state && pairingCode && !sock.authState.creds.registered) {
-        if (useMobile) throw new Error('No se puede usar el código de emparejamiento con la API móvil.');
-        let phoneNumber;
-        if (!!config.pairing.number) {
-           phoneNumber = config.pairing.number.toString();
-           if (!Object.keys(PHONENUMBER_MCC).some(v => phoneNumber.startsWith(v))) {
-              console.log(chalk.bgBlack(chalk.redBright("Ingrese un número válido en el archivo 'config.json' en la sección: [pairing > number], para vincular su cuenta usando un código de emparejamiento. Ejemplo: 5076xxxxxxx.")));
-              process.exit(0);
-           }
-        }
-        setTimeout(async () => {
-           let code = await sock.requestPairingCode(config.pairing.number);
-           code = code?.match(/.{1,4}/g)?.join("-") || code;
-           console.log(chalk.black(chalk.bgGreen(`Tu código de emparejamiento : `)), chalk.black(chalk.white(code)));
-        }, 3000);
+        sock.ev.on('creds.update', saveCreds);
     }
-    
+
     sock.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect } = update;
         if (connection === 'close') {
@@ -88,7 +131,7 @@ async function startBot() {
                 startBot();
             }
         } else if (connection === 'open') {
-            console.log('Conectado exitosamente');
+            console.log(chalk.green('Conectado exitosamente'));
         }
     });
 
@@ -129,8 +172,9 @@ async function startBot() {
         if (text && text.toLowerCase() === 'abrir grupo') {
             await abrirGrupoCommand(sock, message);  // Llama al comando para abrir el grupo
         }
-    })
+    });
 }
 
 // Iniciar el bot
 startBot();
+
