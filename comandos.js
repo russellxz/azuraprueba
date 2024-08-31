@@ -1,74 +1,182 @@
 const { downloadContentFromMessage } = require('@whiskeysockets/baileys');
-const sharp = require('sharp');
-const ffmpeg = require('fluent-ffmpeg');
 const fs = require('fs');
 const path = require('path');
 const { tmpdir } = require('os');
+const webp = require('node-webpmux');
+const ffmpeg = require('fluent-ffmpeg');
+const func = new (require('./waFunc')); // Asegúrate de que este archivo existe y tiene la función makeid.
 
+// Asegúrate de que estas líneas solo aparezcan una vez en todo tu archivo
+const stickerCommandsPath = path.join(__dirname, 'stickerCommands.json');
 
-// Función para crear stickers
-async function stickerCommand(sock, message) {
-    try {
-        const quotedMessage = message.message.extendedTextMessage?.contextInfo?.quotedMessage;
-        if (quotedMessage) {
-            const mediaType = Object.keys(quotedMessage)[0];
-            if (mediaType === 'imageMessage' || mediaType === 'videoMessage') {
-                const stream = await downloadContentFromMessage(quotedMessage[mediaType], mediaType.split('M')[0]);
-                let buffer = Buffer.from([]);
-                for await (const chunk of stream) {
-                    buffer = Buffer.concat([buffer, chunk]);
-                }
+// Configuración de ffmpeg
+ffmpeg.setFfmpegPath('C:\\Users\\perez\\Desktop\\AZURA2.0\\ffmpeg\\bin\\ffmpeg.exe');
 
-                let stickerBuffer;
+// Función para guardar la base de datos de medios
+function saveMediaDatabase(data) {
+    const mediaDatabasePath = path.join(__dirname, 'mediaDatabase.json');
+    fs.writeFileSync(mediaDatabasePath, JSON.stringify(data, null, 2));
+}
 
-                if (mediaType === 'imageMessage') {
-                    stickerBuffer = await sharp(buffer)
-                        .resize(512, 512, { fit: 'inside' })
-                        .webp({ lossless: true })
-                        .toBuffer();
-                } else if (mediaType === 'videoMessage') {
-                    const tempFilePath = path.join(tmpdir(), `${message.key.id}.mp4`);
-                    fs.writeFileSync(tempFilePath, buffer);
+// Función para cargar los comandos de stickers
+function loadStickerCommands() {
+    if (!fs.existsSync(stickerCommandsPath)) {
+        fs.writeFileSync(stickerCommandsPath, JSON.stringify({}));
+    }
+    return JSON.parse(fs.readFileSync(stickerCommandsPath));
+}
 
-                    const outputWebp = path.join(tmpdir(), `${message.key.id}.webp`);
+function saveStickerCommands(data) {
+    fs.writeFileSync(stickerCommandsPath, JSON.stringify(data, null, 2));
+}
 
-                    await new Promise((resolve, reject) => {
-                        ffmpeg(tempFilePath)
-                            .outputOptions([
-                                '-vcodec', 'libwebp',
-                                '-vf', 'scale=512:512:force_original_aspect_ratio=increase,fps=10,format=rgba,pad=512:512:-1:-1:color=00000000',
-                                '-loop', '0',
-                                '-ss', '00:00:00.0',
-                                '-t', '00:00:05.0',
-                                '-preset', 'default',
-                                '-an', '-vsync', '0'
-                            ])
-                            .on('error', reject)
-                            .on('end', resolve)
-                            .save(outputWebp);
-                    });
+// Agregar comando a los stickers
+async function addStickerCommand(sock, message, commandText) {
+    const quotedMessage = message.message.extendedTextMessage?.contextInfo?.quotedMessage;
+    if (quotedMessage && quotedMessage.stickerMessage) {
+        const stickerId = quotedMessage.stickerMessage.fileSha256.toString('base64');
 
-                    stickerBuffer = fs.readFileSync(outputWebp);
+        const stickerCommands = loadStickerCommands();
+        stickerCommands[stickerId] = commandText;
 
-                    fs.unlinkSync(tempFilePath);
-                    fs.unlinkSync(outputWebp);
-                }
+        saveStickerCommands(stickerCommands);
 
-                await sock.sendMessage(message.key.remoteJid, {
-                    sticker: stickerBuffer,
-                    mimetype: 'image/webp',
-                    caption: 'CREADO POR AZURABOT.DM',
-                });
-                await sock.sendMessage(message.key.remoteJid, { text: '¡Sticker creado con éxito!' });
-            } else {
-                await sock.sendMessage(message.key.remoteJid, { text: 'Por favor, responde a una imagen, video o GIF para convertirlo en un sticker.' });
-            }
-        } else {
-            await sock.sendMessage(message.key.remoteJid, { text: 'Por favor, responde a una imagen, video o GIF con .s para convertirlo en un sticker.' });
+        console.log(`Comando ${commandText} agregado para el sticker con ID ${stickerId}`);
+        await sock.sendMessage(message.key.remoteJid, { text: 'Su comando fue agregado con éxito al sticker.' });
+    } else {
+        await sock.sendMessage(message.key.remoteJid, { text: 'Por favor, responda a un sticker con el comando que desea agregar.' });
+    }
+}
+
+// Manejar comandos asociados a stickers
+async function handleStickerCommand(sock, message) {
+    const stickerId = message.message.stickerMessage.fileSha256.toString('base64');
+    const stickerCommands = loadStickerCommands();
+
+    console.log(`Buscando comando para el sticker con ID ${stickerId}`);
+
+    if (stickerCommands[stickerId]) {
+        const commandText = stickerCommands[stickerId];
+        console.log(`Ejecutando comando ${commandText} para el sticker con ID ${stickerId}`);
+
+        // Aquí puedes agregar más comandos soportados
+        if (commandText.toLowerCase() === '.abrir grupo') {
+            await abrirGrupoCommand(sock, message);
+        } else if (commandText.toLowerCase() === '.cerrar grupo') {
+            await cerrarGrupoCommand(sock, message);
         }
-    } catch (error) {
-        console.error('Error creando el sticker:', error);
-        await sock.sendMessage(message.key.remoteJid, { text: 'Hubo un error al crear el sticker.' });
+    }
+}
+
+// Funciones de conversión a WebP y manejo de EXIF
+async function imageToWebp(media) {
+    const tmpFileOut = path.join(tmpdir(), `${func.makeid(10)}.webp`);
+    const tmpFileIn = path.join(tmpdir(), `${func.makeid(10)}.jpg`);
+    fs.writeFileSync(tmpFileIn, media);
+
+    await new Promise((resolve, reject) => {
+        ffmpeg(tmpFileIn)
+            .on('start', function(commandLine) {
+                console.log('Spawned Ffmpeg with command: ' + commandLine);
+            })
+            .on("error", function(err, stdout, stderr) {
+                console.error('Error during processing:', err.message);
+                console.error('ffmpeg stderr:', stderr);
+                reject(new Error('Failed to create WebP image'));
+            })
+            .on("end", function(stdout, stderr) {
+                console.log('Ffmpeg succeeded, stdout:', stdout);
+                resolve(true);
+            })
+            .addOutputOptions([
+                "-vcodec", "libwebp",
+                "-vf", "scale=320:320:force_original_aspect_ratio=decrease"
+            ])
+            .toFormat("webp")
+            .save(tmpFileOut);
+    });
+
+    if (!fs.existsSync(tmpFileOut) || fs.statSync(tmpFileOut).size === 0) {
+        throw new Error('Failed to create WebP image');
+    }
+
+    const buff = fs.readFileSync(tmpFileOut);
+    fs.unlinkSync(tmpFileOut);
+    fs.unlinkSync(tmpFileIn);
+    return buff;
+}
+
+async function videoToWebp(media) {
+    const tmpFileOut = path.join(tmpdir(), `${func.makeid(10)}.webp`);
+    const tmpFileIn = path.join(tmpdir(), `${func.makeid(10)}.mp4`);
+    fs.writeFileSync(tmpFileIn, media);
+
+    await new Promise((resolve, reject) => {
+        ffmpeg(tmpFileIn)
+            .on('start', function(commandLine) {
+                console.log('Spawned Ffmpeg with command: ' + commandLine);
+            })
+            .on("error", reject)
+            .on("end", () => resolve(true))
+            .addOutputOptions([
+                "-vcodec", "libwebp",
+                "-vf", "scale='min(320,iw)':min'(320,ih)':force_original_aspect_ratio=decrease,fps=15,pad=320:320:-1:-1:color=white,split [a][b]; [a] palettegen=reserve_transparent=on:transparency_color=ffffff [p]; [b][p] paletteuse",
+                "-loop", "0", "-ss", "00:00:00", "-t", "00:00:05",
+                "-preset", "default", "-an", "-vsync", "0"
+            ])
+            .toFormat("webp")
+            .save(tmpFileOut);
+    });
+
+    if (!fs.existsSync(tmpFileOut) || fs.statSync(tmpFileOut).size === 0) {
+        throw new Error('Failed to create WebP video');
+    }
+
+    const buff = fs.readFileSync(tmpFileOut);
+    fs.unlinkSync(tmpFileOut);
+    fs.unlinkSync(tmpFileIn);
+    return buff;
+}
+
+async function writeExifImg(media, metadata) {
+    let wMedia = await imageToWebp(media);
+    const tmpFileIn = path.join(tmpdir(), `${func.makeid(10)}.webp`);
+    const tmpFileOut = path.join(tmpdir(), `${func.makeid(10)}.webp`);
+    fs.writeFileSync(tmpFileIn, wMedia);
+
+    if (metadata.packname || metadata.author) {
+        const img = new webp.Image();
+        const json = { "sticker-pack-id": '© node-bot', "sticker-pack-name": metadata.packname, "sticker-pack-publisher": metadata.author, "emojis": metadata.categories ? metadata.categories : [""] };
+        const exifAttr = Buffer.from([0x49, 0x49, 0x2A, 0x00, 0x08, 0x00, 0x00, 0x00, 0x01, 0x00, 0x41, 0x57, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x16, 0x00, 0x00, 0x00]);
+        const jsonBuff = Buffer.from(JSON.stringify(json), "utf-8");
+        const exif = Buffer.concat([exifAttr, jsonBuff]);
+        exif.writeUIntLE(jsonBuff.length, 14, 4);
+        await img.load(tmpFileIn);
+        fs.unlinkSync(tmpFileIn);
+        img.exif = exif;
+        await img.save(tmpFileOut);
+        return tmpFileOut;
+    }
+}
+
+async function writeExifVid(media, metadata) {
+    let wMedia = await videoToWebp(media);
+    const tmpFileIn = path.join(tmpdir(), `${func.makeid(10)}.webp`);
+    const tmpFileOut = path.join(tmpdir(), `${func.makeid(10)}.webp`);
+    fs.writeFileSync(tmpFileIn, wMedia);
+
+    if (metadata.packname || metadata.author) {
+        const img = new webp.Image();
+        const json = { "sticker-pack-id": '© node-bot', "sticker-pack-name": metadata.packname, "sticker-pack-publisher": metadata.author, "emojis": metadata.categories ? metadata.categories : [""] };
+        const exifAttr = Buffer.from([0x49, 0x49, 0x2A, 0x00, 0x08, 0x00, 0x00, 0x00, 0x01, 0x00, 0x41, 0x57, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x16, 0x00, 0x00, 0x00]);
+        const jsonBuff = Buffer.from(JSON.stringify(json), "utf-8");
+        const exif = Buffer.concat([exifAttr, jsonBuff]);
+        exif.writeUIntLE(jsonBuff.length, 14, 4);
+        await img.load(tmpFileIn);
+        fs.unlinkSync(tmpFileIn);
+        img.exif = exif;
+        await img.save(tmpFileOut);
+        return tmpFileOut;
     }
 }
 
@@ -104,31 +212,6 @@ function loadMediaDatabase() {
     return JSON.parse(fs.readFileSync(mediaDatabasePath));
 }
 
-function saveMediaDatabase(data) {
-    const mediaDatabasePath = path.join(__dirname, 'mediaDatabase.json');
-    fs.writeFileSync(mediaDatabasePath, JSON.stringify(data, null, 2));
-}
-
-// Función para convertir notas de voz a MP3
-function convertirAudioMP3(buffer, outputPath) {
-    return new Promise((resolve, reject) => {
-        const inputPath = path.join(tmpdir(), `temp.ogg`);
-        fs.writeFileSync(inputPath, buffer);
-
-        ffmpeg(inputPath)
-            .toFormat('mp3')
-            .on('end', () => {
-                fs.unlinkSync(inputPath); // Elimina el archivo temporal
-                resolve(outputPath);
-            })
-            .on('error', (err) => {
-                fs.unlinkSync(inputPath); // Elimina el archivo temporal
-                reject(err);
-            })
-            .save(outputPath);
-    });
-}
-
 // Comando para guardar multimedia
 async function guardarMediaCommand(sock, message, keyword) {
     try {
@@ -143,8 +226,8 @@ async function guardarMediaCommand(sock, message, keyword) {
 
             let filePath;
             if (mediaType.includes('audio')) {
-                filePath = path.join(tmpdir(), `${keyword}.mp3`);
-                await convertirAudioMP3(buffer, filePath); // Convertir a MP3
+                filePath = path.join(tmpdir(), `${keyword}.opus`); // Guardar como OPUS (nota de voz)
+                fs.writeFileSync(filePath, buffer);
             } else {
                 const fileExtension = mediaType.includes('image') ? 'jpg' : mediaType.includes('video') ? 'mp4' : 'webp';
                 filePath = path.join(tmpdir(), `${keyword}.${fileExtension}`);
@@ -183,9 +266,10 @@ async function enviarMediaCommand(sock, message) {
                 messageOptions.video = buffer;
             } else if (fileExtension === 'webp') {
                 messageOptions.sticker = buffer;
-            } else if (fileExtension === 'mp3') {
+            } else if (fileExtension === 'opus') {
                 messageOptions.audio = buffer;
-                messageOptions.mimetype = 'audio/mp3';
+                messageOptions.mimetype = 'audio/ogg; codecs=opus'; // Nota de voz
+                messageOptions.ptt = true; // Esto asegura que se envíe como nota de voz
             }
 
             await sock.sendMessage(message.key.remoteJid, messageOptions);
@@ -217,14 +301,121 @@ async function eliminarMediaCommand(sock, message, keyword) {
     }
 }
 
+// Comando para crear y enviar stickers
+async function crearStickerCommand(sock, message) {
+    const quotedMessage = message.message.extendedTextMessage?.contextInfo?.quotedMessage;
 
+    if (quotedMessage) {
+        const mediaType = Object.keys(quotedMessage)[0];
+    
+        if (mediaType.includes('image') || mediaType.includes('video')) {
+            // Enviar mensaje de "Por favor, espere..."
+            await sock.sendMessage(message.key.remoteJid, { text: 'Por favor, espere. No haga spam mientras se procesa su solicitud.' }, { quoted: message });
+        
+            const stream = await downloadContentFromMessage(quotedMessage[mediaType], mediaType.split('M')[0]);
+        
+            // Convertir el flujo en un Buffer
+            let buffer = Buffer.from([]);
+            for await (const chunk of stream) {
+                buffer = Buffer.concat([buffer, chunk]);
+            }
+
+            let stickerBuffer;
+            if (mediaType.includes('image')) {
+                stickerBuffer = await writeExifImg(buffer, { packname: 'Mi Paquete', author: 'Bot' });
+            } else if (mediaType.includes('video')) {
+                stickerBuffer = await writeExifVid(buffer, { packname: 'Mi Paquete', author: 'Bot' });
+            }
+
+            if (stickerBuffer) {
+                await sock.sendMessage(message.key.remoteJid, { sticker: { url: stickerBuffer } }, { quoted: message });
+            } else {
+                await sock.sendMessage(message.key.remoteJid, { text: 'El archivo seleccionado no es válido para crear un sticker.' });
+            }
+        } else {
+            await sock.sendMessage(message.key.remoteJid, { text: 'Para crear un sticker, por favor responde a una imagen, video o GIF con el comando ".s".' });
+        }
+    } else {
+        await sock.sendMessage(message.key.remoteJid, { text: 'Para crear un sticker, por favor responde a una imagen, video o GIF con el comando ".s".' });
+    }
+}
+
+// Almacén temporal para los mensajes
+const messageStore = new Map();
+
+let antieliminarEnabled = false;
+
+async function toggleAntieliminarCommand(sock, message, state) {
+    if (state === 'on') {
+        antieliminarEnabled = true;
+        await sock.sendMessage(message.key.remoteJid, { text: 'Antieliminar activado.' });
+    } else if (state === 'off') {
+        antieliminarEnabled = false;
+        await sock.sendMessage(message.key.remoteJid, { text: 'Antieliminar desactivado.' });
+    } else {
+        await sock.sendMessage(message.key.remoteJid, { text: 'Por favor, use ".cojer on" o ".cojer off".' });
+    }
+}
+
+// Guardar el mensaje en el almacenamiento temporal
+async function storeMessage(message) {
+    const messageId = message.key.id;
+    messageStore.set(messageId, message);
+
+    // Eliminar el mensaje del almacenamiento después de 10 minutos
+    setTimeout(() => {
+        messageStore.delete(messageId);
+    }, 10 * 60 * 1000); // 10 minutos
+}
+
+// Manejar mensajes eliminados
+async function handleDelete(sock, message) {
+    if (!antieliminarEnabled) return;
+
+    const messageId = message.key.id;
+    const storedMessage = messageStore.get(messageId);
+
+    if (storedMessage) {
+        const senderNumber = storedMessage.key.participant || storedMessage.key.remoteJid;
+        let deletedContent = '';
+
+        if (storedMessage.message.conversation) {
+            deletedContent = storedMessage.message.conversation;
+        } else if (storedMessage.message.imageMessage) {
+            deletedContent = 'una imagen';
+        } else if (storedMessage.message.videoMessage) {
+            deletedContent = 'un video';
+        } else if (storedMessage.message.stickerMessage) {
+            deletedContent = 'un sticker';
+        } else if (storedMessage.message.documentMessage) {
+            deletedContent = 'un documento';
+        }
+
+        const text = `${senderNumber} borró este mensaje: ${deletedContent}`;
+        await sock.sendMessage(storedMessage.key.remoteJid, { text });
+    }
+}
+
+
+// Exportar funciones
 module.exports = {
-    stickerCommand,
     cerrarGrupoCommand,
     abrirGrupoCommand,
     guardarMediaCommand,
     enviarMediaCommand,
-    eliminarMediaCommand, // Asegúrate de exportar este comando
+    eliminarMediaCommand,
     loadMediaDatabase,
-    saveMediaDatabase
+    saveMediaDatabase, 
+    imageToWebp,
+    videoToWebp,
+    writeExifImg,
+    writeExifVid,
+    crearStickerCommand,
+    addStickerCommand,
+    handleStickerCommand,
+    loadStickerCommands,
+    saveStickerCommands, 
+    toggleAntieliminarCommand, 
+    handleDelete, 
+    storeMessage
 };
