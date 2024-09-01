@@ -5,20 +5,18 @@ const { tmpdir } = require('os');
 const webp = require('node-webpmux');
 const ffmpeg = require('fluent-ffmpeg');
 const func = new (require('./waFunc')); // Asegúrate de que este archivo existe y tiene la función makeid.
-
-// Asegúrate de que estas líneas solo aparezcan una vez en todo tu archivo
 const stickerCommandsPath = path.join(__dirname, 'stickerCommands.json');
 
-// Configuración de ffmpeg
 ffmpeg.setFfmpegPath('C:\\Users\\perez\\Desktop\\AZURA2.0\\ffmpeg\\bin\\ffmpeg.exe');
 
-// Función para guardar la base de datos de medios
+// Otras importaciones y configuraciones aquí
+
+
 function saveMediaDatabase(data) {
     const mediaDatabasePath = path.join(__dirname, 'mediaDatabase.json');
     fs.writeFileSync(mediaDatabasePath, JSON.stringify(data, null, 2));
 }
 
-// Función para cargar los comandos de stickers
 function loadStickerCommands() {
     if (!fs.existsSync(stickerCommandsPath)) {
         fs.writeFileSync(stickerCommandsPath, JSON.stringify({}));
@@ -30,7 +28,6 @@ function saveStickerCommands(data) {
     fs.writeFileSync(stickerCommandsPath, JSON.stringify(data, null, 2));
 }
 
-// Agregar comando a los stickers
 async function addStickerCommand(sock, message, commandText) {
     const quotedMessage = message.message.extendedTextMessage?.contextInfo?.quotedMessage;
     if (quotedMessage && quotedMessage.stickerMessage) {
@@ -48,7 +45,6 @@ async function addStickerCommand(sock, message, commandText) {
     }
 }
 
-// Manejar comandos asociados a stickers
 async function handleStickerCommand(sock, message) {
     const stickerId = message.message.stickerMessage.fileSha256.toString('base64');
     const stickerCommands = loadStickerCommands();
@@ -59,7 +55,6 @@ async function handleStickerCommand(sock, message) {
         const commandText = stickerCommands[stickerId];
         console.log(`Ejecutando comando ${commandText} para el sticker con ID ${stickerId}`);
 
-        // Aquí puedes agregar más comandos soportados
         if (commandText.toLowerCase() === '.abrir grupo') {
             await abrirGrupoCommand(sock, message);
         } else if (commandText.toLowerCase() === '.cerrar grupo') {
@@ -68,7 +63,6 @@ async function handleStickerCommand(sock, message) {
     }
 }
 
-// Funciones de conversión a WebP y manejo de EXIF
 async function imageToWebp(media) {
     const tmpFileOut = path.join(tmpdir(), `${func.makeid(10)}.webp`);
     const tmpFileIn = path.join(tmpdir(), `${func.makeid(10)}.jpg`);
@@ -180,7 +174,6 @@ async function writeExifVid(media, metadata) {
     }
 }
 
-// Funciones para cerrar y abrir el grupo
 async function cerrarGrupoCommand(sock, message) {
     const chatId = message.key.remoteJid;
     try {
@@ -203,7 +196,6 @@ async function abrirGrupoCommand(sock, message) {
     }
 }
 
-// Funciones para manejar la base de datos de multimedia
 function loadMediaDatabase() {
     const mediaDatabasePath = path.join(__dirname, 'mediaDatabase.json');
     if (!fs.existsSync(mediaDatabasePath)) {
@@ -212,7 +204,6 @@ function loadMediaDatabase() {
     return JSON.parse(fs.readFileSync(mediaDatabasePath));
 }
 
-// Comando para guardar multimedia
 async function guardarMediaCommand(sock, message, keyword) {
     try {
         const quotedMessage = message.message.extendedTextMessage?.contextInfo?.quotedMessage;
@@ -226,7 +217,7 @@ async function guardarMediaCommand(sock, message, keyword) {
 
             let filePath;
             if (mediaType.includes('audio')) {
-                filePath = path.join(tmpdir(), `${keyword}.opus`); // Guardar como OPUS (nota de voz)
+                filePath = path.join(tmpdir(), `${keyword}.opus`);
                 fs.writeFileSync(filePath, buffer);
             } else {
                 const fileExtension = mediaType.includes('image') ? 'jpg' : mediaType.includes('video') ? 'mp4' : 'webp';
@@ -248,7 +239,6 @@ async function guardarMediaCommand(sock, message, keyword) {
     }
 }
 
-// Comando para enviar multimedia
 async function enviarMediaCommand(sock, message) {
     try {
         const text = message.message.conversation || message.message.extendedTextMessage?.text;
@@ -268,8 +258,8 @@ async function enviarMediaCommand(sock, message) {
                 messageOptions.sticker = buffer;
             } else if (fileExtension === 'opus') {
                 messageOptions.audio = buffer;
-                messageOptions.mimetype = 'audio/ogg; codecs=opus'; // Nota de voz
-                messageOptions.ptt = true; // Esto asegura que se envíe como nota de voz
+                messageOptions.mimetype = 'audio/ogg; codecs=opus';
+                messageOptions.ptt = true;
             }
 
             await sock.sendMessage(message.key.remoteJid, messageOptions);
@@ -282,14 +272,13 @@ async function enviarMediaCommand(sock, message) {
     }
 }
 
-// Comando para eliminar multimedia guardado
 async function eliminarMediaCommand(sock, message, keyword) {
     try {
         const mediaDatabase = loadMediaDatabase();
 
         if (mediaDatabase[keyword]) {
-            fs.unlinkSync(mediaDatabase[keyword]); // Elimina el archivo guardado
-            delete mediaDatabase[keyword]; // Elimina la entrada de la base de datos
+            fs.unlinkSync(mediaDatabase[keyword]);
+            delete mediaDatabase[keyword];
             saveMediaDatabase(mediaDatabase);
             await sock.sendMessage(message.key.remoteJid, { text: `¡Multimedia asociado con la palabra clave "${keyword}" ha sido eliminado!` });
         } else {
@@ -301,7 +290,6 @@ async function eliminarMediaCommand(sock, message, keyword) {
     }
 }
 
-// Comando para crear y enviar stickers
 async function crearStickerCommand(sock, message) {
     const quotedMessage = message.message.extendedTextMessage?.contextInfo?.quotedMessage;
 
@@ -309,12 +297,10 @@ async function crearStickerCommand(sock, message) {
         const mediaType = Object.keys(quotedMessage)[0];
     
         if (mediaType.includes('image') || mediaType.includes('video')) {
-            // Enviar mensaje de "Por favor, espere..."
             await sock.sendMessage(message.key.remoteJid, { text: 'Por favor, espere. No haga spam mientras se procesa su solicitud.' }, { quoted: message });
         
             const stream = await downloadContentFromMessage(quotedMessage[mediaType], mediaType.split('M')[0]);
         
-            // Convertir el flujo en un Buffer
             let buffer = Buffer.from([]);
             for await (const chunk of stream) {
                 buffer = Buffer.concat([buffer, chunk]);
@@ -340,64 +326,6 @@ async function crearStickerCommand(sock, message) {
     }
 }
 
-// Almacén temporal para los mensajes
-const messageStore = new Map();
-
-let antieliminarEnabled = false;
-
-async function toggleAntieliminarCommand(sock, message, state) {
-    if (state === 'on') {
-        antieliminarEnabled = true;
-        await sock.sendMessage(message.key.remoteJid, { text: 'Antieliminar activado.' });
-    } else if (state === 'off') {
-        antieliminarEnabled = false;
-        await sock.sendMessage(message.key.remoteJid, { text: 'Antieliminar desactivado.' });
-    } else {
-        await sock.sendMessage(message.key.remoteJid, { text: 'Por favor, use ".cojer on" o ".cojer off".' });
-    }
-}
-
-// Guardar el mensaje en el almacenamiento temporal
-async function storeMessage(message) {
-    const messageId = message.key.id;
-    messageStore.set(messageId, message);
-
-    // Eliminar el mensaje del almacenamiento después de 10 minutos
-    setTimeout(() => {
-        messageStore.delete(messageId);
-    }, 10 * 60 * 1000); // 10 minutos
-}
-
-// Manejar mensajes eliminados
-async function handleDelete(sock, message) {
-    if (!antieliminarEnabled) return;
-
-    const messageId = message.key.id;
-    const storedMessage = messageStore.get(messageId);
-
-    if (storedMessage) {
-        const senderNumber = storedMessage.key.participant || storedMessage.key.remoteJid;
-        let deletedContent = '';
-
-        if (storedMessage.message.conversation) {
-            deletedContent = storedMessage.message.conversation;
-        } else if (storedMessage.message.imageMessage) {
-            deletedContent = 'una imagen';
-        } else if (storedMessage.message.videoMessage) {
-            deletedContent = 'un video';
-        } else if (storedMessage.message.stickerMessage) {
-            deletedContent = 'un sticker';
-        } else if (storedMessage.message.documentMessage) {
-            deletedContent = 'un documento';
-        }
-
-        const text = `${senderNumber} borró este mensaje: ${deletedContent}`;
-        await sock.sendMessage(storedMessage.key.remoteJid, { text });
-    }
-}
-
-
-// Exportar funciones
 module.exports = {
     cerrarGrupoCommand,
     abrirGrupoCommand,
@@ -414,8 +342,6 @@ module.exports = {
     addStickerCommand,
     handleStickerCommand,
     loadStickerCommands,
-    saveStickerCommands, 
-    toggleAntieliminarCommand, 
-    handleDelete, 
-    storeMessage
+    saveStickerCommands,
+    
 };
