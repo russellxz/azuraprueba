@@ -36,8 +36,46 @@ const { deleteStickerCommand } = require('./2.0');
 const config = require('./config.json');
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 const question = (text) => new Promise((resolve) => rl.question(text, resolve));
+
 let client;
 let antieliminarEnabled = false;
+let blacklistedCommands = {}; // Lista negra de comandos
+
+// Función para verificar si el usuario es administrador
+async function isAdmin(client, message) {
+    const groupMetadata = await client.groupMetadata(message.key.remoteJid);
+    const participant = groupMetadata.participants.find(p => p.id === message.key.participant);
+    return participant && participant.admin !== null;
+}
+
+// Función para restringir un comando
+async function restrictCommand(client, message, command) {
+    const isAdminUser = await isAdmin(client, message);
+    if (!isAdminUser) {
+        await client.sendMessage(message.key.remoteJid, { text: 'Solo los administradores pueden usar este comando.' });
+        return;
+    }
+
+    blacklistedCommands[command.toLowerCase()] = true;
+    await client.sendMessage(message.key.remoteJid, { text: `El comando "${command}" ha sido restringido. Solo los administradores pueden usarlo.` });
+}
+
+// Función para quitar la restricción de un comando
+async function unrestrictCommand(client, message, command) {
+    const isAdminUser = await isAdmin(client, message);
+    if (!isAdminUser) {
+        await client.sendMessage(message.key.remoteJid, { text: 'Solo los administradores pueden usar este comando.' });
+        return;
+    }
+
+    delete blacklistedCommands[command.toLowerCase()];
+    await client.sendMessage(message.key.remoteJid, { text: `El comando "${command}" ahora está disponible para todos los miembros del grupo.` });
+}
+
+// Función para verificar si un comando está restringido
+function isCommandRestricted(command) {
+    return blacklistedCommands[command.toLowerCase()] === true;
+}
 
 async function startBot() {
     const { state, saveCreds } = await useMultiFileAuthState('./sessions');
@@ -164,35 +202,129 @@ async function startBot() {
         if (!message.message) return;
         const text = message.message.conversation || message.message.extendedTextMessage?.text;
         if (!text) return;
-    
+
+        // Restricción de comandos
+        if (text.toLowerCase().startsWith('.r ')) {
+            const commandToRestrict = text.split(' ').slice(1).join(' ').toLowerCase();
+            if (commandToRestrict) {
+                await restrictCommand(client, message, commandToRestrict);
+            } else {
+                await client.sendMessage(message.key.remoteJid, { text: 'Por favor, proporciona un comando para restringir.' });
+            }
+            return;
+        }
+
+        if (text.toLowerCase().startsWith('.u ')) {
+            const commandToUnrestrict = text.split(' ').slice(1).join(' ').toLowerCase();
+            if (commandToUnrestrict) {
+                await unrestrictCommand(client, message, commandToUnrestrict);
+            } else {
+                await client.sendMessage(message.key.remoteJid, { text: 'Por favor, proporciona un comando para quitar la restricción.' });
+            }
+            return;
+        }
+
+        // Verifica si el comando está restringido
+        if (isCommandRestricted(text.toLowerCase())) {
+            const isAdminUser = await isAdmin(client, message);
+            if (!isAdminUser) {
+                await client.sendMessage(message.key.remoteJid, { text: 'Este comando está restringido y solo puede ser usado por administradores.' });
+                return;
+            }
+        }
+
         if (text.toLowerCase() === '.cojer1 on') {
             antieliminarEnabled = true;
             await client.sendMessage(message.key.remoteJid, { text: 'Antieliminar activado.' });
             return;
         }
-    
+
         if (text.toLowerCase() === '.cojer2 off') {
             antieliminarEnabled = false;
             await client.sendMessage(message.key.remoteJid, { text: 'Antieliminar desactivado.' });
             return;
         }
-    
-        if (message.message && message.message.protocolMessage && message.message.protocolMessage.type == 0 && !message.key.fromMe) {
+
+        if (message.message?.protocolMessage?.type == 0 && !message.key.fromMe) {
             return client.ev.emit('message.delete', message.message.protocolMessage.key);
         }
+
+        if (text.toLowerCase() === '.abrir grupo') {
+            await abrirGrupoCommand(client, message);
+            return;
+        }
+
+        if (text.toLowerCase() === '.cerrar grupo') {
+            await cerrarGrupoCommand(client, message);
+            return;
+        }
+
+        if (text && text.toLowerCase().startsWith('.guar ')) {
+            const keyword = text.split(' ')[1];
+            if (keyword) {
+                await guardarMediaCommand(client, message, keyword);
+            } else {
+                await client.sendMessage(message.key.remoteJid, { text: 'Por favor, proporciona una palabra clave después de "guar".' });
+            }
+            return;
+        }
+
+        if (text && loadMediaDatabase()[text]) {
+            await enviarMediaCommand(client, message);
+            return;
+        }
+
+        if (text && text.toLowerCase().startsWith('.eli ')) {
+            const keyword = text.split(' ')[1];
+            if (keyword) {
+                await eliminarMediaCommand(client, message, keyword);
+            } else {
+                await client.sendMessage(message.key.remoteJid, { text: 'Por favor, proporciona una palabra clave después de ".eli".' });
+            }
+            return;
+        }
+
+        if (text && text.toLowerCase() === '.s') {
+            await crearStickerCommand(client, message);
+            return;
+        }
+
+        if (message.message?.stickerMessage) {
+            try {
+                await handleStickerCommand(client, message);
+            } catch (error) {
+                console.error('Error al manejar stickers:', error);
+            }
+            return;
+        }
+
+        if (text && text.toLowerCase().startsWith('.add ')) {
+            const commandText = text.split(' ').slice(1).join(' ').toLowerCase();
+            if (commandText) {
+                await addStickerCommand(client, message, commandText);
+            } else {
+                await client.sendMessage(message.key.remoteJid, { text: 'Por favor, proporciona un comando después de ".add".' });
+            }
+            return;
+        }
+
+        if (text && text.toLowerCase() === '.z') {
+            await deleteStickerCommand(client, message);
+            return;
+        }
     });
-    
+
     client.ev.on('message.delete', async (m) => {
         if (!antieliminarEnabled) return;
-    
+
         if (!m || !m.remoteJid) return;
         const group = global.mongo.groups.find(_ => _.jid == m.remoteJid.split('@')[0]);
         if (group !== undefined && group !== null && !group.nodelete) {
             return;
         }
-        var copy = await global.store.loadMessage(m.remoteJid, m.id, client);
-        var mention = copy?.mention ? copy.mention : null;
-        var getMsg = proto.WebMessageInfo.fromObject({
+        const copy = await global.store.loadMessage(m.remoteJid, m.id, client);
+        const mention = copy?.mention ? copy.mention : null;
+        const getMsg = proto.WebMessageInfo.fromObject({
             key: copy.key,
             message: {
                 [copy.type]: copy.msg
@@ -203,72 +335,22 @@ async function startBot() {
         });
     });
 
-    // Otros comandos aquí...
+    // Verificación continua de IDs de stickers
     client.ev.on('messages.upsert', async (m) => {
         const message = m.messages[0];
-        const text = message.message?.conversation || message.message?.extendedTextMessage?.text;
-    
-        if (text && text.toLowerCase().startsWith('.guar ')) {
-            const keyword = text.split(' ')[1];
-            if (keyword) {
-                await guardarMediaCommand(client, message, keyword);
-            } else {
-                await client.sendMessage(message.key.remoteJid, { text: 'Por favor, proporciona una palabra clave después de "guar".' });
+        try {
+            if (message.message?.stickerMessage) {
+                await handleStickerCommand(client, message);
             }
-            return;
-        }
-    
-        if (text && loadMediaDatabase()[text]) {
-            await enviarMediaCommand(client, message);
-            return;
-        }
-    
-        if (text && text.toLowerCase().startsWith('.eli ')) {
-            const keyword = text.split(' ')[1];
-            if (keyword) {
-                await eliminarMediaCommand(client, message, keyword);
-            } else {
-                await client.sendMessage(message.key.remoteJid, { text: 'Por favor, proporciona una palabra clave después de ".eli".' });
-            }
-            return;
-        }
-    
-        if (text && text.toLowerCase() === '.cerrar grupo') {
-            await cerrarGrupoCommand(client, message);
-            return;
-        }
-    
-        if (text && text.toLowerCase() === '.abrir grupo') {
-            await abrirGrupoCommand(client, message);
-            return;
-        }
-    
-        if (text && text.toLowerCase() === '.s') {
-            await crearStickerCommand(client, message);
-            return;
-        }
-    
-        if (message.message.stickerMessage) {
-            await handleStickerCommand(client, message);
-            return;
-        }
-    
-        if (text && text.toLowerCase().startsWith('.add ')) {
-            const commandText = text.split(' ').slice(1).join(' ');
-            if (commandText) {
-                await addStickerCommand(client, message, commandText);
-            } else {
-                await client.sendMessage(message.key.remoteJid, { text: 'Por favor, proporciona un comando después de ".add".' });
-            }
-            return;
-        }
-    
-        if (text && text.toLowerCase() === '.z') {
-            await deleteStickerCommand(client, message);
-            return;
+        } catch (error) {
+            console.error('Error al manejar stickers:', error);
         }
     });
 }
 
 startBot();
+
+
+
+
 

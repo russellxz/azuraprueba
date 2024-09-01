@@ -11,7 +11,6 @@ ffmpeg.setFfmpegPath('C:\\Users\\perez\\Desktop\\AZURA2.0\\ffmpeg\\bin\\ffmpeg.e
 
 // Otras importaciones y configuraciones aquí
 
-
 function saveMediaDatabase(data) {
     const mediaDatabasePath = path.join(__dirname, 'mediaDatabase.json');
     fs.writeFileSync(mediaDatabasePath, JSON.stringify(data, null, 2));
@@ -28,7 +27,7 @@ function saveStickerCommands(data) {
     fs.writeFileSync(stickerCommandsPath, JSON.stringify(data, null, 2));
 }
 
-async function addStickerCommand(sock, message, commandText) {
+async function addStickerCommand(client, message, commandText) {
     const quotedMessage = message.message.extendedTextMessage?.contextInfo?.quotedMessage;
     if (quotedMessage && quotedMessage.stickerMessage) {
         const stickerId = quotedMessage.stickerMessage.fileSha256.toString('base64');
@@ -39,13 +38,13 @@ async function addStickerCommand(sock, message, commandText) {
         saveStickerCommands(stickerCommands);
 
         console.log(`Comando ${commandText} agregado para el sticker con ID ${stickerId}`);
-        await sock.sendMessage(message.key.remoteJid, { text: 'Su comando fue agregado con éxito al sticker.' });
+        await client.sendMessage(message.key.remoteJid, { text: 'Su comando fue agregado con éxito al sticker.' });
     } else {
-        await sock.sendMessage(message.key.remoteJid, { text: 'Por favor, responda a un sticker con el comando que desea agregar.' });
+        await client.sendMessage(message.key.remoteJid, { text: 'Por favor, responda a un sticker con el comando que desea agregar.' });
     }
 }
 
-async function handleStickerCommand(sock, message) {
+async function handleStickerCommand(client, message) {
     const stickerId = message.message.stickerMessage.fileSha256.toString('base64');
     const stickerCommands = loadStickerCommands();
 
@@ -56,9 +55,9 @@ async function handleStickerCommand(sock, message) {
         console.log(`Ejecutando comando ${commandText} para el sticker con ID ${stickerId}`);
 
         if (commandText.toLowerCase() === '.abrir grupo') {
-            await abrirGrupoCommand(sock, message);
+            await abrirGrupoCommand(client, message);
         } else if (commandText.toLowerCase() === '.cerrar grupo') {
-            await cerrarGrupoCommand(sock, message);
+            await cerrarGrupoCommand(client, message);
         }
     }
 }
@@ -174,25 +173,25 @@ async function writeExifVid(media, metadata) {
     }
 }
 
-async function cerrarGrupoCommand(sock, message) {
+async function cerrarGrupoCommand(client, message) {
     const chatId = message.key.remoteJid;
     try {
-        await sock.groupSettingUpdate(chatId, 'announcement');
-        await sock.sendMessage(chatId, { text: '🔒 El grupo ha sido cerrado. Solo los administradores pueden enviar mensajes.' });
+        await client.groupSettingUpdate(chatId, 'announcement');
+        await client.sendMessage(chatId, { text: '🔒 El grupo ha sido cerrado. Solo los administradores pueden enviar mensajes.' });
     } catch (error) {
         console.error('Error cerrando el grupo:', error);
-        await sock.sendMessage(chatId, { text: '❌ No se pudo cerrar el grupo.' });
+        await client.sendMessage(chatId, { text: '❌ No se pudo cerrar el grupo.' });
     }
 }
 
-async function abrirGrupoCommand(sock, message) {
+async function abrirGrupoCommand(client, message) {
     const chatId = message.key.remoteJid;
     try {
-        await sock.groupSettingUpdate(chatId, 'not_announcement');
-        await sock.sendMessage(chatId, { text: '🔓 El grupo ha sido abierto. Todos los miembros pueden enviar mensajes.' });
+        await client.groupSettingUpdate(chatId, 'not_announcement');
+        await client.sendMessage(chatId, { text: '🔓 El grupo ha sido abierto. Todos los miembros pueden enviar mensajes.' });
     } catch (error) {
         console.error('Error abriendo el grupo:', error);
-        await sock.sendMessage(chatId, { text: '❌ No se pudo abrir el grupo.' });
+        await client.sendMessage(chatId, { text: '❌ No se pudo abrir el grupo.' });
     }
 }
 
@@ -204,7 +203,7 @@ function loadMediaDatabase() {
     return JSON.parse(fs.readFileSync(mediaDatabasePath));
 }
 
-async function guardarMediaCommand(sock, message, keyword) {
+async function guardarMediaCommand(client, message, keyword) {
     try {
         const quotedMessage = message.message.extendedTextMessage?.contextInfo?.quotedMessage;
         if (quotedMessage) {
@@ -229,17 +228,17 @@ async function guardarMediaCommand(sock, message, keyword) {
             mediaDatabase[keyword] = filePath;
             saveMediaDatabase(mediaDatabase);
 
-            await sock.sendMessage(message.key.remoteJid, { text: `¡Multimedia guardado con la palabra clave "${keyword}"!` });
+            await client.sendMessage(message.key.remoteJid, { text: `¡Multimedia guardado con la palabra clave "${keyword}"!` });
         } else {
-            await sock.sendMessage(message.key.remoteJid, { text: 'Por favor, responde a un archivo multimedia para guardarlo con una palabra clave.' });
+            await client.sendMessage(message.key.remoteJid, { text: 'Por favor, responde a un archivo multimedia para guardarlo con una palabra clave.' });
         }
     } catch (error) {
         console.error('Error guardando multimedia:', error);
-        await sock.sendMessage(message.key.remoteJid, { text: 'Hubo un error al guardar el multimedia.' });
+        await client.sendMessage(message.key.remoteJid, { text: 'Hubo un error al guardar el multimedia.' });
     }
 }
 
-async function enviarMediaCommand(sock, message) {
+async function enviarMediaCommand(client, message) {
     try {
         const text = message.message.conversation || message.message.extendedTextMessage?.text;
         const mediaDatabase = loadMediaDatabase();
@@ -262,17 +261,17 @@ async function enviarMediaCommand(sock, message) {
                 messageOptions.ptt = true;
             }
 
-            await sock.sendMessage(message.key.remoteJid, messageOptions);
+            await client.sendMessage(message.key.remoteJid, messageOptions);
         } else {
-            await sock.sendMessage(message.key.remoteJid, { text: 'No se encontró ningún multimedia guardado con esa palabra clave.' });
+            await client.sendMessage(message.key.remoteJid, { text: 'No se encontró ningún multimedia guardado con esa palabra clave.' });
         }
     } catch (error) {
         console.error('Error enviando multimedia:', error);
-        await sock.sendMessage(message.key.remoteJid, { text: 'Hubo un error al enviar el multimedia.' });
+        await client.sendMessage(message.key.remoteJid, { text: 'Hubo un error al enviar el multimedia.' });
     }
 }
 
-async function eliminarMediaCommand(sock, message, keyword) {
+async function eliminarMediaCommand(client, message, keyword) {
     try {
         const mediaDatabase = loadMediaDatabase();
 
@@ -280,24 +279,24 @@ async function eliminarMediaCommand(sock, message, keyword) {
             fs.unlinkSync(mediaDatabase[keyword]);
             delete mediaDatabase[keyword];
             saveMediaDatabase(mediaDatabase);
-            await sock.sendMessage(message.key.remoteJid, { text: `¡Multimedia asociado con la palabra clave "${keyword}" ha sido eliminado!` });
+            await client.sendMessage(message.key.remoteJid, { text: `¡Multimedia asociado con la palabra clave "${keyword}" ha sido eliminado!` });
         } else {
-            await sock.sendMessage(message.key.remoteJid, { text: 'No se encontró ningún multimedia guardado con esa palabra clave.' });
+            await client.sendMessage(message.key.remoteJid, { text: 'No se encontró ningún multimedia guardado con esa palabra clave.' });
         }
     } catch (error) {
         console.error('Error eliminando multimedia:', error);
-        await sock.sendMessage(message.key.remoteJid, { text: 'Hubo un error al eliminar el multimedia.' });
+        await client.sendMessage(message.key.remoteJid, { text: 'Hubo un error al eliminar el multimedia.' });
     }
 }
 
-async function crearStickerCommand(sock, message) {
+async function crearStickerCommand(client, message) {
     const quotedMessage = message.message.extendedTextMessage?.contextInfo?.quotedMessage;
 
     if (quotedMessage) {
         const mediaType = Object.keys(quotedMessage)[0];
     
         if (mediaType.includes('image') || mediaType.includes('video')) {
-            await sock.sendMessage(message.key.remoteJid, { text: 'Por favor, espere. No haga spam mientras se procesa su solicitud.' }, { quoted: message });
+            await client.sendMessage(message.key.remoteJid, { text: 'Por favor, espere. No haga spam mientras se procesa su solicitud.' }, { quoted: message });
         
             const stream = await downloadContentFromMessage(quotedMessage[mediaType], mediaType.split('M')[0]);
         
@@ -314,15 +313,15 @@ async function crearStickerCommand(sock, message) {
             }
 
             if (stickerBuffer) {
-                await sock.sendMessage(message.key.remoteJid, { sticker: { url: stickerBuffer } }, { quoted: message });
+                await client.sendMessage(message.key.remoteJid, { sticker: { url: stickerBuffer } }, { quoted: message });
             } else {
-                await sock.sendMessage(message.key.remoteJid, { text: 'El archivo seleccionado no es válido para crear un sticker.' });
+                await client.sendMessage(message.key.remoteJid, { text: 'El archivo seleccionado no es válido para crear un sticker.' });
             }
         } else {
-            await sock.sendMessage(message.key.remoteJid, { text: 'Para crear un sticker, por favor responde a una imagen, video o GIF con el comando ".s".' });
+            await client.sendMessage(message.key.remoteJid, { text: 'Para crear un sticker, por favor responde a una imagen, video o GIF con el comando ".s".' });
         }
     } else {
-        await sock.sendMessage(message.key.remoteJid, { text: 'Para crear un sticker, por favor responde a una imagen, video o GIF con el comando ".s".' });
+        await client.sendMessage(message.key.remoteJid, { text: 'Para crear un sticker, por favor responde a una imagen, video o GIF con el comando ".s".' });
     }
 }
 
@@ -343,5 +342,4 @@ module.exports = {
     handleStickerCommand,
     loadStickerCommands,
     saveStickerCommands,
-    
 };
